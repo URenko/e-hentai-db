@@ -1,4 +1,4 @@
-const mysql = require('mysql');
+const mysql = require('mysql2');
 const config = require('../config');
 
 class MarkReplaced {
@@ -9,7 +9,6 @@ class MarkReplaced {
 			user: config.dbUser,
 			password: config.dbPass,
 			database: config.dbName,
-			timeout: 10e3,
 		});
 
 		this.query = this.query.bind(this);

@@ -1,4 +1,4 @@
-const mysql = require('mysql');
+const mysql = require('mysql2');
 const fs = require('fs');
 const { Buffer } = require('buffer');
 const https = require('https');
@@ -30,7 +30,6 @@ class Resync {
 			user: config.dbUser,
 			password: config.dbPass,
 			database: config.dbName,
-			timeout: 10e3,
 		});
 		connection.on('error', (err) => {
 			console.error(err);
