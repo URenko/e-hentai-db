@@ -1,0 +1,139 @@
+name: ExHentai Sync
+
+on:
+  schedule:
+    - cron: '5 * * * *'
+    - cron: '35 */12 * * *'
+  workflow_dispatch:
+    inputs:
+      run_resync:
+        description: Run resync 48 after sync/torrent-import
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: exh-sync-and-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    env:
+      DB_HOST: localhost
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASS: root
+      DB_NAME: e-hentai-db
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 'lts/*'
+          cache: npm
+
+      - name: Start system MySQL service
+        run: |
+          set -euo pipefail
+          sudo systemctl start mysql.service
+
+      - name: Wait for MySQL ready
+        run: |
+          set -euo pipefail
+          for i in {1..60}; do
+            if mysqladmin ping -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p"$DB_PASS" --silent; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "MySQL service did not become ready in time."
+          exit 1
+
+      - name: Ensure database exists
+        run: |
+          set -euo pipefail
+          mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p"$DB_PASS" \
+            -e "CREATE DATABASE IF NOT EXISTS \`$DB_NAME\` CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;"
+
+      - name: Download nightly dump from GitHub release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          REPO="${GITHUB_REPOSITORY}"
+          TAG="nightly"
+          ASSET_NAME="nightly.sql.zstd"
+
+          RELEASE_JSON="$(curl -fsSL \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${REPO}/releases/tags/${TAG}")"
+
+          ASSET_API_URL="$(echo "$RELEASE_JSON" | jq -r --arg name "$ASSET_NAME" '.assets[] | select(.name==$name) | .url')"
+          if [ -z "$ASSET_API_URL" ] || [ "$ASSET_API_URL" = "null" ]; then
+            echo "Release asset not found: ${REPO} tag=${TAG} asset=${ASSET_NAME}"
+            exit 1
+          fi
+
+          curl -fsSL \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/octet-stream" \
+            "$ASSET_API_URL" \
+            -o "$ASSET_NAME"
+
+      - name: Import dump into MySQL
+        run: |
+          set -euo pipefail
+          zstd -dc nightly.sql.zstd | mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p"$DB_PASS" "$DB_NAME"
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Fetch cookie
+        env:
+          EX_COOKIE_URL: ${{ secrets.EX_COOKIE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${EX_COOKIE_URL:-}" ]; then
+            echo "Missing secret EX_COOKIE_URL"
+            exit 1
+          fi
+          curl -fsSL "$EX_COOKIE_URL" > .cookies
+          if [ ! -s .cookies ]; then
+            echo ".cookies is empty"
+            exit 1
+          fi
+
+      - name: Check region in whitelist
+        run: npm run check-region
+
+      - name: Sync and import torrents (hourly)
+        run: |
+          set -euo pipefail
+          npm run sync exhentai.org
+          npm run torrent-import exhentai.org
+
+      - name: Resync last 48 hours (every 12 hours)
+        if: >-
+          (github.event_name == 'schedule' && github.event.schedule == '35 */12 * * *')
+          || (github.event_name == 'workflow_dispatch' && inputs.run_resync)
+        run: |
+          set -euo pipefail
+          npm run resync 48
+
+      - name: Upload updated dump to GitHub release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          chmod +x ./upload_to_github.sh
+          ./upload_to_github.sh
