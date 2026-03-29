@@ -1,18 +1,14 @@
 #!/bin/bash
 set -euo pipefail
 
-DB_HOST="${DB_HOST:-127.0.0.1}"
-DB_PORT="${DB_PORT:-3306}"
-DB_USER="${DB_USER:-root}"
-DB_PASS="${DB_PASS:-}"
-DB_NAME="${DB_NAME:-e-hentai-db}"
-BACKUP_FILE="${BACKUP_FILE:-nightly.sql.zstd}"
-TMP_ASSET_NAME="${TMP_ASSET_NAME:-$(date +%s).sql.zstd}"
+DB_PATH="${DB_PATH:-${SQLITE_PATH:-./e-hentai.db}}"
+BACKUP_FILE="${BACKUP_FILE:-e-hentai.db.zstd}"
+TMP_ASSET_NAME="${TMP_ASSET_NAME:-$(date +%s).db.zstd}"
 REPO="${REPO:-${GITHUB_REPOSITORY:-URenko/e-hentai-db}}"
 TAG="${TAG:-nightly}"
 GITHUB_TOKEN="${GITHUB_TOKEN:-}"
 MIN_BACKUP_BYTES="${MIN_BACKUP_BYTES:-1024}"
-TMP_BACKUP="$(mktemp "${TMPDIR:-/tmp}/nightly.sql.XXXXXX.zstd")"
+TMP_BACKUP="$(mktemp "${TMPDIR:-/tmp}/e-hentai.db.XXXXXX.zstd")"
 
 cleanup() {
   rm -f "$TMP_BACKUP"
@@ -36,12 +32,12 @@ fi
 
 # === 2. 先生成本地备份并校验 ===
 echo "📦 Generating local backup..."
-MYSQL_ARGS=(--protocol=TCP -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER")
-if [ -n "$DB_PASS" ]; then
-  MYSQL_ARGS+=("-p$DB_PASS")
+if [ ! -f "$DB_PATH" ]; then
+  echo "❌ SQLite database not found: $DB_PATH"
+  exit 1
 fi
 
-mysqldump "${MYSQL_ARGS[@]}" "$DB_NAME" | zstd -q -c > "$TMP_BACKUP"
+zstd -9 -q -c "$DB_PATH" > "$TMP_BACKUP"
 
 BACKUP_SIZE="$(wc -c < "$TMP_BACKUP" | tr -d '[:space:]')"
 if [ -z "$BACKUP_SIZE" ] || [ "$BACKUP_SIZE" -lt "$MIN_BACKUP_BYTES" ]; then

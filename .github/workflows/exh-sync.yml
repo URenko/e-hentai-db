@@ -25,11 +25,7 @@ jobs:
     timeout-minutes: 120
 
     env:
-      DB_HOST: localhost
-      DB_PORT: 3306
-      DB_USER: root
-      DB_PASS: root
-      DB_NAME: e-hentai-db
+      SQLITE_PATH: e-hentai.db
 
     steps:
       - name: Checkout
@@ -38,31 +34,8 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 'lts/*'
+          node-version: 'latest'
           cache: npm
-
-      - name: Start system MySQL service
-        run: |
-          set -euo pipefail
-          sudo systemctl start mysql.service
-
-      - name: Wait for MySQL ready
-        run: |
-          set -euo pipefail
-          for i in {1..60}; do
-            if mysqladmin ping -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p"$DB_PASS" --silent; then
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "MySQL service did not become ready in time."
-          exit 1
-
-      - name: Ensure database exists
-        run: |
-          set -euo pipefail
-          mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p"$DB_PASS" \
-            -e "CREATE DATABASE IF NOT EXISTS \`$DB_NAME\` CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;"
 
       - name: Download nightly dump from GitHub release
         env:
@@ -71,7 +44,7 @@ jobs:
           set -euo pipefail
           REPO="${GITHUB_REPOSITORY}"
           TAG="nightly"
-          ASSET_NAME="nightly.sql.zstd"
+          ASSET_NAME="e-hentai.db.zstd"
 
           RELEASE_JSON="$(curl -fsSL \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
@@ -90,13 +63,13 @@ jobs:
             "$ASSET_API_URL" \
             -o "$ASSET_NAME"
 
-      - name: Import dump into MySQL
+      - name: Restore SQLite database
         run: |
           set -euo pipefail
-          zstd -dc nightly.sql.zstd | mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p"$DB_PASS" "$DB_NAME"
+          zstd -dc e-hentai.db.zstd > "$SQLITE_PATH"
 
       - name: Install Node dependencies
-        run: npm ci
+        run: npm ci --omit=dev
 
       - name: Fetch cookie
         env:
@@ -133,6 +106,8 @@ jobs:
       - name: Upload updated dump to GitHub release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DB_PATH: ${{ env.SQLITE_PATH }}
+          BACKUP_FILE: e-hentai.db.zstd
         run: |
           set -euo pipefail
           chmod +x ./upload_to_github.sh

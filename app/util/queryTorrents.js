@@ -3,8 +3,10 @@ const queryTorrents = async (conn, gids) => {
 	if (!gids || !gids.length) {
 		return gidTorrents;
 	}
+	const placeholders = gids.map(() => '?').join(', ');
 	const torrentResult = await conn.query(
-		'SELECT * FROM torrent WHERE gid IN (?)', [gids]
+		`SELECT * FROM torrent WHERE gid IN (${placeholders})`,
+		gids
 	);
 	torrentResult.forEach(({ gid, ...rest }) => {
 		if (!gidTorrents[gid]) {

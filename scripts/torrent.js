@@ -1,8 +1,7 @@
-const mysql = require('mysql2');
 const fs = require('fs');
 const http = require('http');
 const https = require('https');
-const config = require('../config');
+const ConnectDB = require('../app/util/connectDB');
 
 const timestamp_one_week_before = Date.now() / 1000 - 7 * 24 * 60 * 60;
 
@@ -31,19 +30,7 @@ class TorrentImport {
 	}
 
 	initConnection() {
-		const connection = mysql.createConnection({
-			host: config.dbHost,
-			port: config.dbPort,
-			user: config.dbUser,
-			password: config.dbPass,
-			database: config.dbName,
-		});
-		connection.on('error', (err) => {
-			console.error(err);
-			this.connection = this.initConnection();
-			this.connection.connect();
-		});
-		return connection;
+		return new ConnectDB();
 	}
 
 	query(...args) {
@@ -261,7 +248,6 @@ class TorrentImport {
 				return;
 			}
 
-			await this.query('SET NAMES UTF8MB4');
 			const notInited = await this.getNotInited();
 			const length = notInited.length;
 			console.log(`${length} galleries needs to import`);
@@ -294,18 +280,14 @@ class TorrentImport {
 							const hashes = await this.getExistTorrents(gid);
 							const newTorrents = list.filter(e => hashes.indexOf(e.hash) < 0);
 							await Promise.all(newTorrents.map(
-								e => this.query('INSERT INTO torrent SET ? ON DUPLICATE KEY UPDATE ?', [{
-									id: e.gtid,
-									gid,
-									addedstr: e.posted,
-									fsizestr: e.size,
-									uploader: e.uploader,
-									hash: e.hash,
-									name: e.name,
-									expunged: !!e.expunged,
-								}, {
-									expunged: !!e.expunged,
-								}])
+								e => this.query(
+									`INSERT INTO torrent (id, gid, addedstr, fsizestr, uploader, hash, name, expunged)
+									 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+									 ON CONFLICT(id) DO UPDATE SET expunged = excluded.expunged`,
+									[
+										e.gtid, gid, e.posted, e.size, e.uploader, e.hash, e.name, +!!e.expunged
+									]
+								)
 							));
 							// set exist root_gid galleries to replaced, this improves search performance
 							await this.query('UPDATE gallery SET replaced = 1 WHERE root_gid = ?', [gid]);

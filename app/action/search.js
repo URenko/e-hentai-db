@@ -117,6 +117,7 @@ const search = async (req, res) => {
 	});
 
 	const conn = await new ConnectDB().connect();
+	const formatList = values => values.map(value => conn.connection.format('?', [value])).join(', ');
 
 	let table;
 	// prefer to get tag galleries first
@@ -127,11 +128,11 @@ const search = async (req, res) => {
 			const like = [...new Set(tags.like)];
 			table = conn.connection.format(
 				`(
-					SELECT a.* FROM gid_tid AS a INNER JOIN (
-						SELECT id FROM tag WHERE ${[
-							inc.length && conn.connection.format('name IN (?)', [inc]),
-							like.length && like.map(e => conn.connection.format('name LIKE ?', [e])).join(' OR ')
-						].filter(e => e).join(' OR ')}
+						SELECT a.* FROM gid_tid AS a INNER JOIN (
+							SELECT id FROM tag WHERE ${[
+								inc.length && `name IN (${formatList(inc)})`,
+								like.length && like.map(e => conn.connection.format('name LIKE ?', [e])).join(' OR ')
+							].filter(e => e).join(' OR ')}
 					) AS b ON a.tid = b.id GROUP BY a.gid HAVING COUNT(a.gid) >= ? ORDER BY NULL
 				)`,
 				// TODO: inc + like?
@@ -146,13 +147,13 @@ const search = async (req, res) => {
 
 		if (tags.or.length || tags.orLike.length) {
 			const orTable = conn.connection.format(
-				`(
-					SELECT a.* FROM gid_tid AS a INNER JOIN (
-						SELECT id FROM tag WHERE ${[
-					tags.or.length && conn.connection.format('name IN (?)', [tags.or]),
+					`(
+						SELECT a.* FROM gid_tid AS a INNER JOIN (
+							SELECT id FROM tag WHERE ${[
+					tags.or.length && `name IN (${formatList(tags.or)})`,
 					tags.orLike.length && tags.orLike.map(e => conn.connection.format('name LIKE ?', [e])).join(' OR ')
 				].filter(e => e).join(' OR ')}
-					) AS b ON a.tid = b.id
+						) AS b ON a.tid = b.id
 				)`
 			);
 			if (!table) {
@@ -165,13 +166,13 @@ const search = async (req, res) => {
 		let excTable;
 		if (tags.exc.length || tags.notLike.length) {
 			excTable = conn.connection.format(
-				`(
-					SELECT a.* FROM gid_tid AS a INNER JOIN (
-						SELECT id FROM tag WHERE ${[
-							tags.inc.length && conn.connection.format('name IN (?)', [tags.exc]),
-							tags.like.length && tags.like.map(e => conn.connection.format('name LIKE ?', [e])).join(' OR ')
-						].filter(e => e).join(' OR ')}
-					) AS b ON a.tid = b.id
+					`(
+						SELECT a.* FROM gid_tid AS a INNER JOIN (
+							SELECT id FROM tag WHERE ${[
+								tags.inc.length && `name IN (${formatList(tags.exc)})`,
+								tags.like.length && tags.like.map(e => conn.connection.format('name LIKE ?', [e])).join(' OR ')
+							].filter(e => e).join(' OR ')}
+						) AS b ON a.tid = b.id
 				)`
 			);
 			// if (table) {
@@ -192,7 +193,7 @@ const search = async (req, res) => {
 					SELECT a.* FROM (${table}) AS a LEFT JOIN ${excTable} AS b ON a.gid = b.gid WHERE b.gid IS NULL
 				)`;
 			}
-			table = `gallery FORCE INDEX(posted) INNER JOIN (${table}) AS t ON gallery.gid = t.gid`;
+			table = `gallery INNER JOIN (${table}) AS t ON gallery.gid = t.gid`;
 		}
 	}
 	else {
@@ -205,12 +206,12 @@ const search = async (req, res) => {
 		!removed && 'removed = 0',
 		!replaced && 'replaced = 0',
 		!tags.inc.length && tags.exc.length && 't.gid IS NULL',
-		cats.length && cats.length !== 10 && conn.connection.format('category IN (?)', [cats]),
+		cats.length && cats.length !== 10 && `category IN (${formatList(cats)})`,
 		// E-Hentai only returns the latest gallery of specific gid, but whatever, we have `replaced`
-		rootIds.inc.length && conn.connection.format('root_gid IN (SELECT root_gid FROM gallery WHERE gid IN (?))', [rootIds.inc]),
-		rootIds.exc.length && conn.connection.format('root_gid NOT IN (SELECT root_gid FROM gallery WHERE gid IN (?))', [rootIds.exc]),
-		uploader.inc.length && conn.connection.format('uploader IN (?)', [uploader.inc]),
-		uploader.exc.length && conn.connection.format('uploader NOT IN (?)', [uploader.exc]),
+		rootIds.inc.length && `root_gid IN (SELECT root_gid FROM gallery WHERE gid IN (${formatList(rootIds.inc)}))`,
+		rootIds.exc.length && `root_gid NOT IN (SELECT root_gid FROM gallery WHERE gid IN (${formatList(rootIds.exc)}))`,
+		uploader.inc.length && `uploader IN (${formatList(uploader.inc)})`,
+		uploader.exc.length && `uploader NOT IN (${formatList(uploader.exc)})`,
 		minpage && conn.connection.format('filecount >= ?', [minpage]),
 		maxpage && conn.connection.format('filecount <= ?', [maxpage]),
 		minrating && minrating > 1 && conn.connection.format('rating >= ?', [minrating - 0.5]),
@@ -222,13 +223,13 @@ const search = async (req, res) => {
 			...keywords.inc.map(e => `%${e}%`),
 			...keywords.like,
 		].map(
-			e => conn.connection.format('CONCAT_WS(\' \', title, title_jpn) LIKE ?', e)
+			e => conn.connection.format('(COALESCE(title, \'\') || \' \' || COALESCE(title_jpn, \'\')) LIKE ?', e)
 		).join(' AND '),
 		(keywords.exc.length || keywords.notLike.length) && [
 			...keywords.exc.map(e => `%${e}%`),
 			...keywords.notLike,
 		].map(
-			e => conn.connection.format('CONCAT_WS(\' \', title, title_jpn) NOT LIKE ?', e)
+			e => conn.connection.format('(COALESCE(title, \'\') || \' \' || COALESCE(title_jpn, \'\')) NOT LIKE ?', e)
 		).join(' AND '),
 	].filter(e => e).join(' AND ');
 
@@ -237,8 +238,7 @@ const search = async (req, res) => {
 		[limit, (page - 1) * limit]
 	);
 
-	const noForceIndexTable = table.replace('FORCE INDEX(posted)', '');
-	const { total } = (await conn.query(`SELECT COUNT(DISTINCT gallery.gid) AS total FROM ${noForceIndexTable} WHERE ${query || 1}`))[0];
+	const { total } = (await conn.query(`SELECT COUNT(DISTINCT gallery.gid) AS total FROM ${table} WHERE ${query || 1}`))[0];
 
 	if (!result.length) {
 		conn.destroy();

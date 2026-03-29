@@ -1,15 +1,8 @@
-const mysql = require('mysql2');
-const config = require('../config');
+const ConnectDB = require('../app/util/connectDB');
 
 class MarkReplaced {
 	constructor() {
-		this.connection = mysql.createConnection({
-			host: config.dbHost,
-			port: config.dbPort,
-			user: config.dbUser,
-			password: config.dbPass,
-			database: config.dbName,
-		});
+		this.connection = new ConnectDB();
 
 		this.query = this.query.bind(this);
 		this.run = this.run.bind(this);
@@ -40,8 +33,18 @@ class MarkReplaced {
 				return;
 			}
 
-			await this.query('SET NAMES UTF8MB4');
-			await this.query('UPDATE gallery LEFT JOIN (SELECT root_gid, MAX(gid) AS max_gid, gid FROM gallery GROUP BY IFNULL(root_gid, gid)) AS t ON gallery.gid = t.max_gid SET gallery.replaced = t.max_gid IS NULL');
+			await this.query(`
+				WITH latest AS (
+					SELECT COALESCE(root_gid, gid) AS group_gid, MAX(gid) AS max_gid
+					FROM gallery
+					GROUP BY COALESCE(root_gid, gid)
+				)
+				UPDATE gallery
+				SET replaced = CASE
+					WHEN gid IN (SELECT max_gid FROM latest) THEN 0
+					ELSE 1
+				END
+			`);
 			connection.destroy();
 		});
 	}

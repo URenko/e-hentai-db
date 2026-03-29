@@ -1,10 +1,9 @@
-const mysql = require('mysql2');
 const fs = require('fs');
 const { Buffer } = require('buffer');
 const https = require('https');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 const childProcess = require('child_process');
-const config = require('../config');
+const ConnectDB = require('../app/util/connectDB');
 
 const proxy = process.env.HTTPS_PROXY || process.env.https_proxy;
 
@@ -24,19 +23,7 @@ class Resync {
 	}
 
 	initConnection() {
-		const connection = mysql.createConnection({
-			host: config.dbHost,
-			port: config.dbPort,
-			user: config.dbUser,
-			password: config.dbPass,
-			database: config.dbName,
-		});
-		connection.on('error', (err) => {
-			console.error(err);
-			this.connection = this.initConnection();
-			this.connection.connect();
-		});
-		return connection;
+		return new ConnectDB();
 	}
 
 	query(...args) {
@@ -135,7 +122,6 @@ class Resync {
 				return;
 			}
 
-			await this.query('SET NAMES UTF8MB4');
 			const list = await this.getResyncList();
 			connection.destroy();
 			console.log(`got ${list.length} galleries to resync`);

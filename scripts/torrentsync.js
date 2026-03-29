@@ -1,9 +1,8 @@
-const mysql = require('mysql2');
 const fs = require('fs');
 const https = require('https');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 const childProcess = require('child_process');
-const config = require('../config');
+const ConnectDB = require('../app/util/connectDB');
 
 const proxy = process.env.HTTPS_PROXY || process.env.https_proxy;
 
@@ -44,19 +43,7 @@ class TorrentSync {
 	}
 
 	initConnection() {
-		const connection = mysql.createConnection({
-			host: config.dbHost,
-			port: config.dbPort,
-			user: config.dbUser,
-			password: config.dbPass,
-			database: config.dbName,
-		});
-		connection.on('error', (err) => {
-			console.error(err);
-			this.connection = this.initConnection();
-			this.connection.connect();
-		});
-		return connection;
+		return new ConnectDB();
 	}
 
 	query(...args) {
@@ -293,7 +280,6 @@ class TorrentSync {
 				return;
 			}
 
-			await this.query('SET NAMES UTF8MB4');
 			const lastTorrentId = (await this.getLastTorrentId()) || 0;
 			console.log(`last torrent id = ${lastTorrentId}`);
 
@@ -338,7 +324,8 @@ class TorrentSync {
 				gidMap[e[0]] = (gidMap[e[0]] || 0) + 1;
 			});
 			const gids = Object.keys(gidMap);
-			const existGallery = (await this.query('SELECT gid FROM gallery WHERE gid IN (?)', [gids])).map(e => +e.gid);
+			const gidPlaceholders = gids.map(() => '?').join(', ');
+			const existGallery = (await this.query(`SELECT gid FROM gallery WHERE gid IN (${gidPlaceholders})`, gids)).map(e => +e.gid);
 			const notExistGallery = gids.filter(e => existGallery.indexOf(+e) < 0);
 			if (notExistGallery.length) {
 				console.log(`${notExistGallery.length} galleries are not exist, try to add their metadatas first`);
@@ -372,7 +359,7 @@ class TorrentSync {
 					});
 				});
 
-				await this.query('UPDATE gallery SET bytorrent = 1 WHERE gid IN (?)', [gids]);
+				await this.query(`UPDATE gallery SET bytorrent = 1 WHERE gid IN (${gidPlaceholders})`, gids);
 			}
 
 			const torrentResult = [];
@@ -413,7 +400,11 @@ class TorrentSync {
 
 			await Promise.all(
 				torrentResult.sort((a, b) => a.id - b.id).map(async (e) => {
-					await this.query('INSERT INTO torrent SET ?', [e]);
+					await this.query(
+						`INSERT OR IGNORE INTO torrent (id, gid, addedstr, fsizestr, uploader, hash, name, expunged)
+						 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+						[e.id, e.gid, e.addedstr, e.fsizestr, e.uploader, e.hash, e.name, 0]
+					);
 					await this.query('UPDATE gallery SET root_gid = ? WHERE gid = ?', [e.gid, e.gid]);
 				})
 			);

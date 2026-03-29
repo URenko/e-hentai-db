@@ -6,3 +6,6 @@ gdata.json
 dist/
 .cookies
 .proxies
+/.venv/
+*.db
+*.db-*

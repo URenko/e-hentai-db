@@ -5,9 +5,7 @@ Just another E-Hentai metadata database
 
 ## Requirements
 
-- Node.js 8+
-
-- MySQL 5.3+ / MariaDB 10+
+- Node.js 22+
 
 
 ## Setup & Start Up
@@ -21,9 +19,15 @@ Just another E-Hentai metadata database
 
 3. Download `gdata.json` from [E-Hentai Forums](https://forums.e-hentai.org/index.php?s=&showtopic=201268&view=findpost&p=5474857) and place it into the repo directory
 
-4. Import `struct.sql` into a MySQL / MariaDB database
+4. Initialize database file from `struct.sql`
+   - `sqlite3 ./e-hentai.db < struct.sql`
 
-5. Edit `config.js`, set database username, password, database name, etc.
+5. Edit `config.js`, set `sqlitePath` if needed
+
+   If you already have an old MySQL instance and want to migrate into SQLite:
+   ```sh
+   python3 migration_scripts/mysql_to_sqlite.py --sqlite-path ./e-hentai.db --drop-existing
+   ```
 
 6. Run `npm run import [file=gdata.json]` to import the JSON file into your database
     - If you want to update to latest galleries, run `npm run sync [host=e-hentai.org] [timestampOffset=0]`
@@ -262,28 +266,16 @@ Now the import script supports resume importing, you can cancel your imports and
 Try adding indexes if you want
 
 ```sql
-ALTER TABLE `gid_tid` ADD UNIQUE(`gid`, `tid`);
-ALTER TABLE `gid_tid` ADD INDEX(`tid`);
-ALTER TABLE `tag` ADD UNIQUE(`name`);
-ALTER TABLE `gallery` ADD INDEX(`category`);
-ALTER TABLE `gallery` ADD INDEX(`uploader`);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_gid_tid_unique ON gid_tid (gid, tid);
+CREATE INDEX IF NOT EXISTS idx_gid_tid_tid ON gid_tid (tid);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tag_name_unique ON tag (name);
+CREATE INDEX IF NOT EXISTS idx_gallery_category ON gallery (category);
+CREATE INDEX IF NOT EXISTS idx_gallery_uploader ON gallery (uploader);
 ```
 
 If you want to add all of these indexes, the database size will increased from 330 MB to about 500 MB
 
 ![](https://user-images.githubusercontent.com/8115912/62408338-54c29300-b5fa-11e9-81d1-7bb4bf5dd16c.png)
-
-### No primary key in table `gid_tid`
-
-I'm not sure should I add an `id` column, as I'm not using it to query. But if you want, try the following SQL, and it'll takes about 110 MB
-
-```sql
-ALTER TABLE `gid_tid` ADD `id` INT NOT NULL AUTO_INCREMENT PRIMARY KEY FIRST;
-```
-
-### Why MyISAM?
-
-I've little knowledge with database, you can change `struct.sql` to use InnoDB or others you want
 
 ### The server quits when I exit the terminal  
 

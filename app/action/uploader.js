@@ -26,7 +26,7 @@ const uploaderList = async (req, res) => {
 	);
 	const { total } = (await conn.query(
 		'SELECT COUNT(*) AS total FROM gallery WHERE expunged = 0 AND uploader = ?',
-		[uploader, limit, (page - 1) * limit]
+		[uploader]
 	))[0];
 
 	if (!result.length) {

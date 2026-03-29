@@ -1,16 +1,9 @@
-const mysql = require('mysql2');
 const fs = require('fs');
-const config = require('../config');
+const ConnectDB = require('../app/util/connectDB');
 
 class Import {
 	constructor() {
-		this.connection = mysql.createConnection({
-			host: config.dbHost,
-			port: config.dbPort,
-			user: config.dbUser,
-			password: config.dbPass,
-			database: config.dbName,
-		});
+		this.connection = new ConnectDB();
 
 		this.tagMap = {};
 		this.query = this.query.bind(this);
@@ -103,11 +96,9 @@ class Import {
 				console.error(err.stack);
 				return;
 			}
-			console.log(`connected as id ${connection.threadId}`);
-			const ct = new Date();
-			console.log(`started inserting at ${ct}`);
-
-			await this.query('SET NAMES UTF8MB4');
+				console.log(`connected as id ${connection.threadId}`);
+				const ct = new Date();
+				console.log(`started inserting at ${ct}`);
 
 			this.tagMap = await this.loadTags();
 			const galleries = await this.loadGalleries();
@@ -129,24 +120,33 @@ class Import {
 
 				const newTags = tags.filter(e => !tagMap[e]);
 				if (newTags.length) {
-					// insert multiple rows only returns the last insert id
-					// to make it simple, select them again, but it may affect performance
-					const { insertId } = await this.query('INSERT INTO tag (name) VALUES ?', [newTags.map(e => [e])]);
-					const results = await this.query('SELECT * FROM tag WHERE id >= ?', [insertId]);
+					const newTagPlaceholders = newTags.map(() => '(?)').join(', ');
+					await this.query(`INSERT OR IGNORE INTO tag (name) VALUES ${newTagPlaceholders}`, newTags);
+					const selectTagPlaceholders = newTags.map(() => '?').join(', ');
+					const results = await this.query(`SELECT * FROM tag WHERE name IN (${selectTagPlaceholders})`, newTags);
 					results.forEach((e) => tagMap[e.name] = e.id);
 				}
 
 				const queries = []; 
 				if (!galleries.hasOwnProperty(gid)) {
 					inserted++;
-					queries.push(this.query('INSERT INTO gallery SET ?', {
-						gid, token, archiver_key, title, title_jpn, category, thumb, uploader,
-						posted, filecount, filesize, expunged, rating, torrentcount
-					}));
+					queries.push(this.query(
+						`INSERT INTO gallery (
+							gid, token, archiver_key, title, title_jpn, category, thumb, uploader,
+							posted, filecount, filesize, expunged, rating, torrentcount
+						) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+						[
+							gid, token, archiver_key, title, title_jpn, category, thumb, uploader,
+							posted, filecount, filesize, expunged, rating, torrentcount
+						]
+					));
 					if (tags.length) {
-						queries.push(this.query('INSERT INTO gid_tid (gid, tid) VALUES ?', [
-							tags.map(e => [+id, tagMap[e]])
-						]));
+						const tagRows = tags.map(e => [+id, tagMap[e]]);
+						const tagPlaceholders = tagRows.map(() => '(?, ?)').join(', ');
+						queries.push(this.query(
+							`INSERT OR IGNORE INTO gid_tid (gid, tid) VALUES ${tagPlaceholders}`,
+							tagRows.flat()
+						));
 					}
 				}
 				else if (this.force || posted > galleries[gid] || galleries.bytorrent) {
@@ -155,19 +155,31 @@ class Import {
 					const tids = tags.map(e => tagMap[e]);
 					const addTids = tids.filter(e => curTags.indexOf(e) < 0);
 					const delTids = curTags.filter(e => tids.indexOf(e) < 0);
-					queries.push(this.query('UPDATE gallery SET ? WHERE gid = ?', [{
-						token, archiver_key, title, title_jpn, category, thumb, uploader,
-						posted, filecount, filesize, expunged, rating, torrentcount, bytorrent: 0
-					}, gid]));
+					queries.push(this.query(
+						`UPDATE gallery SET
+							token = ?, archiver_key = ?, title = ?, title_jpn = ?, category = ?, thumb = ?, uploader = ?,
+							posted = ?, filecount = ?, filesize = ?, expunged = ?, rating = ?, torrentcount = ?, bytorrent = 0
+						WHERE gid = ?`,
+						[
+							token, archiver_key, title, title_jpn, category, thumb, uploader,
+							posted, filecount, filesize, expunged, rating, torrentcount, gid
+						]
+					));
 					if (addTids.length) {
-						queries.push(this.query('INSERT INTO gid_tid (gid, tid) VALUES ?', [
-							addTids.map(e => [+id, e])
-						]));
+						const addRows = addTids.map(e => [+id, e]);
+						const addPlaceholders = addRows.map(() => '(?, ?)').join(', ');
+						queries.push(this.query(
+							`INSERT OR IGNORE INTO gid_tid (gid, tid) VALUES ${addPlaceholders}`,
+							addRows.flat()
+						));
 					}
 					if (delTids.length) {
-						queries.push(this.query('DELETE FROM gid_tid WHERE (gid, tid) IN (?)', [
-							delTids.map(e => [+id, e])
-						]));
+						const delRows = delTids.map(e => [+id, e]);
+						const delPlaceholders = delRows.map(() => '(?, ?)').join(', ');
+						queries.push(this.query(
+							`DELETE FROM gid_tid WHERE (gid, tid) IN (${delPlaceholders})`,
+							delRows.flat()
+						));
 					}
 				}
 				else {

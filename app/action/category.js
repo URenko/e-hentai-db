@@ -35,15 +35,16 @@ const list = async (req, res) => {
 	}
 
 	const conn = await new ConnectDB().connect();
+	const placeholders = cat.map(() => '?').join(', ');
 
 	const result = await conn.query(
-		`SELECT * FROM gallery WHERE expunged = 0 AND category in (?)
+		`SELECT * FROM gallery WHERE expunged = 0 AND category in (${placeholders})
 			ORDER BY posted DESC LIMIT ? OFFSET ?`,
-		[cat, limit, (page - 1) * limit]
+		[...cat, limit, (page - 1) * limit]
 	);
 	const { total } = (await conn.query(
-		'SELECT COUNT(*) AS total FROM gallery WHERE expunged = 0 AND category in (?)',
-		[cat]
+		`SELECT COUNT(*) AS total FROM gallery WHERE expunged = 0 AND category in (${placeholders})`,
+		cat
 	))[0];
 
 	if (!result.length) {

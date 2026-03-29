@@ -1,46 +1,42 @@
-SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
-SET time_zone = "+00:00";
+CREATE TABLE IF NOT EXISTS gallery (
+  gid INTEGER PRIMARY KEY,
+  token TEXT NOT NULL,
+  archiver_key TEXT,
+  title TEXT NOT NULL,
+  title_jpn TEXT NOT NULL DEFAULT '',
+  category TEXT NOT NULL,
+  thumb TEXT NOT NULL,
+  uploader TEXT,
+  posted INTEGER NOT NULL,
+  filecount INTEGER NOT NULL,
+  filesize INTEGER NOT NULL,
+  expunged INTEGER NOT NULL,
+  removed INTEGER NOT NULL DEFAULT 0,
+  replaced INTEGER NOT NULL DEFAULT 0,
+  rating TEXT NOT NULL,
+  torrentcount INTEGER NOT NULL,
+  root_gid INTEGER DEFAULT NULL,
+  bytorrent INTEGER NOT NULL DEFAULT 0
+);
 
-CREATE TABLE IF NOT EXISTS `gallery` (
-  `gid` int(11) NOT NULL,
-  `token` char(10) NOT NULL,
-  `archiver_key` varchar(60) NOT NULL,
-  `title` varchar(300) NOT NULL,
-  `title_jpn` varchar(300) NOT NULL,
-  `category` varchar(15) NOT NULL,
-  `thumb` varchar(150) NOT NULL,
-  `uploader` varchar(50) DEFAULT NULL,
-  `posted` int(11) NOT NULL,
-  `filecount` int(11) NOT NULL,
-  `filesize` bigint(20) NOT NULL,
-  `expunged` tinyint(1) NOT NULL,
-  `removed` tinyint(1) NOT NULL DEFAULT 0,
-  `replaced` tinyint(1) NOT NULL DEFAULT 0,
-  `rating` char(4) NOT NULL,
-  `torrentcount` int(11) NOT NULL,
-  `root_gid` int(11) DEFAULT NULL,
-  `bytorrent` tinyint(1) NOT NULL DEFAULT 0,
-  PRIMARY KEY (`gid`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS gid_tid (
+  gid INTEGER NOT NULL,
+  tid INTEGER NOT NULL,
+  PRIMARY KEY (gid, tid)
+);
 
-CREATE TABLE IF NOT EXISTS `gid_tid` (
-  `gid` int(11) NOT NULL,
-  `tid` int(11) NOT NULL
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS tag (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE
+);
 
-CREATE TABLE IF NOT EXISTS `tag` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
-  `name` varchar(200) NOT NULL,
-  PRIMARY KEY (`id`)
-) ENGINE=MyISAM AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4;
-
-CREATE TABLE `torrent` (
-  `id` int(11) NOT NULL,
-  `gid` int(11) NOT NULL,
-  `name` varchar(300) NOT NULL,
-  `hash` char(40) DEFAULT NULL,
-  `addedstr` varchar(20) DEFAULT NULL,
-  `fsizestr` varchar(15) DEFAULT NULL,
-  `uploader` varchar(50) NOT NULL,
-  `expunged` tinyint(1) NOT NULL DEFAULT 0
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS torrent (
+  id INTEGER PRIMARY KEY,
+  gid INTEGER NOT NULL,
+  name TEXT NOT NULL,
+  hash TEXT,
+  addedstr TEXT,
+  fsizestr TEXT,
+  uploader TEXT NOT NULL,
+  expunged INTEGER NOT NULL DEFAULT 0
+);

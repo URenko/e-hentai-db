@@ -22,8 +22,7 @@
   "author": "ccloli",
   "license": "GPL-3.0",
   "dependencies": {
-    "https-proxy-agent": "^7.0.6",
-    "mysql2": "^3.16.0"
+    "https-proxy-agent": "^7.0.6"
   },
   "devDependencies": {
     "@babel/core": "^7.23.0",
