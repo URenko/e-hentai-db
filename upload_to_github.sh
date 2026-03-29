@@ -7,6 +7,7 @@ DB_USER="${DB_USER:-root}"
 DB_PASS="${DB_PASS:-}"
 DB_NAME="${DB_NAME:-e-hentai-db}"
 BACKUP_FILE="${BACKUP_FILE:-nightly.sql.zstd}"
+TMP_ASSET_NAME="${TMP_ASSET_NAME:-$(date +%s).sql.zstd}"
 REPO="${REPO:-${GITHUB_REPOSITORY:-URenko/e-hentai-db}}"
 TAG="${TAG:-nightly}"
 GITHUB_TOKEN="${GITHUB_TOKEN:-}"
@@ -49,29 +50,44 @@ if [ -z "$BACKUP_SIZE" ] || [ "$BACKUP_SIZE" -lt "$MIN_BACKUP_BYTES" ]; then
 fi
 echo "✅ Backup ready (${BACKUP_SIZE} bytes)"
 
-# === 3. 删除旧 Asset ===
+# === 3. 先上传到临时 Asset 名称 ===
+echo "🚀 Uploading backup to temp asset: $TMP_ASSET_NAME"
+UPLOAD_RESPONSE="$(curl -fsS -X POST \
+  -H "Authorization: token $GITHUB_TOKEN" \
+  -H "Content-Type: application/zstd" \
+  --data-binary @"$TMP_BACKUP" \
+  "https://uploads.github.com/repos/$REPO/releases/$RELEASE_ID/assets?name=$TMP_ASSET_NAME")"
+
+UPLOADED_ID="$(echo "$UPLOAD_RESPONSE" | jq -r '.id')"
+if [ -z "$UPLOADED_ID" ] || [ "$UPLOADED_ID" = "null" ]; then
+  echo "❌ Upload failed: $UPLOAD_RESPONSE"
+  exit 1
+fi
+
+# === 4. 删除旧 Asset ===
 ASSET_ID=$(curl -fsS \
   -H "Authorization: token $GITHUB_TOKEN" \
   https://api.github.com/repos/$REPO/releases/$RELEASE_ID/assets | jq -r ".[] | select(.name==\"$BACKUP_FILE\") | .id")
 
 if [ -n "$ASSET_ID" ] && [ "$ASSET_ID" != "null" ]; then
-  echo "🧹 Deleting old asset..."
+  echo "🧹 Deleting old asset: $BACKUP_FILE"
   curl -fsS -X DELETE \
     -H "Authorization: token $GITHUB_TOKEN" \
     https://api.github.com/repos/$REPO/releases/assets/$ASSET_ID > /dev/null
 fi
 
-# === 4. 上传新备份 ===
-echo "🚀 Uploading backup..."
-UPLOAD_RESPONSE="$(curl -fsS -X POST \
+# === 5. 将临时 Asset 重命名为正式名称 ===
+RENAME_PAYLOAD="$(jq -nc --arg name "$BACKUP_FILE" '{name:$name}')"
+echo "🏷️ Renaming temp asset to: $BACKUP_FILE"
+RENAME_RESPONSE="$(curl -fsS -X PATCH \
   -H "Authorization: token $GITHUB_TOKEN" \
-  -H "Content-Type: application/zstd" \
-  --data-binary @"$TMP_BACKUP" \
-  "https://uploads.github.com/repos/$REPO/releases/$RELEASE_ID/assets?name=$BACKUP_FILE")"
+  -H "Content-Type: application/json" \
+  -d "$RENAME_PAYLOAD" \
+  https://api.github.com/repos/$REPO/releases/assets/$UPLOADED_ID)"
 
-UPLOADED_ID="$(echo "$UPLOAD_RESPONSE" | jq -r '.id')"
-if [ -z "$UPLOADED_ID" ] || [ "$UPLOADED_ID" = "null" ]; then
-  echo "❌ Upload failed: $UPLOAD_RESPONSE"
+RENAMED_NAME="$(echo "$RENAME_RESPONSE" | jq -r '.name')"
+if [ "$RENAMED_NAME" != "$BACKUP_FILE" ]; then
+  echo "❌ Rename failed: $RENAME_RESPONSE"
   exit 1
 fi
 
