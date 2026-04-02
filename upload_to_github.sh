@@ -37,7 +37,7 @@ if [ ! -f "$DB_PATH" ]; then
   exit 1
 fi
 
-zstd -9 -q -c "$DB_PATH" > "$TMP_BACKUP"
+zstd -T0 -9 -q -c "$DB_PATH" > "$TMP_BACKUP"
 
 BACKUP_SIZE="$(wc -c < "$TMP_BACKUP" | tr -d '[:space:]')"
 if [ -z "$BACKUP_SIZE" ] || [ "$BACKUP_SIZE" -lt "$MIN_BACKUP_BYTES" ]; then
