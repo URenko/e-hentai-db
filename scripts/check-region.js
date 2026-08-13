@@ -175,9 +175,7 @@ function requestUConfig(cookie) {
 }
 
 function extractRegion(html) {
-  const match =
-    html.match(/from\s*<strong>\s*([^<]+)\s*<\/strong>\s*or use a VPN or proxy/i) ||
-    html.match(/from\s*<strong>\s*([^<]+)\s*<\/strong>/i);
+  const match = html.match(/be located in\s*<strong>([^<]+)<\/strong>/i);
   return match ? match[1].trim() : '';
 }
 
